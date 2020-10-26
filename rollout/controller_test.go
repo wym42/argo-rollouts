@@ -417,6 +417,7 @@ func (f *fixture) newController(resync resyncFunc) (*Controller, informers.Share
 		AnalysisRunInformer:             i.Argoproj().V1alpha1().AnalysisRuns(),
 		AnalysisTemplateInformer:        i.Argoproj().V1alpha1().AnalysisTemplates(),
 		ClusterAnalysisTemplateInformer: i.Argoproj().V1alpha1().ClusterAnalysisTemplates(),
+		PodInformer:                     k8sI.Core().V1().Pods(),
 		ReplicaSetInformer:              k8sI.Apps().V1().ReplicaSets(),
 		ServicesInformer:                k8sI.Core().V1().Services(),
 		IngressInformer:                 k8sI.Extensions().V1beta1().Ingresses(),

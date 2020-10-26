@@ -8,6 +8,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/kubernetes/pkg/controller"
+	"k8s.io/utils/integer"
 	"k8s.io/utils/pointer"
 
 	"github.com/argoproj/argo-rollouts/pkg/apis/rollouts/v1alpha1"
@@ -190,7 +191,6 @@ func (c *Controller) scaleDownOldReplicaSetsForCanary(allRSs []*appsv1.ReplicaSe
 		return 0, nil
 	}
 	logCtx.Infof("Found %d available pods, scaling down old RSes", availablePodCount)
-
 	sort.Sort(controller.ReplicaSetsByCreationTimestamp(oldRSs))
 
 	totalScaledDown := int32(0)
@@ -202,13 +202,11 @@ func (c *Controller) scaleDownOldReplicaSetsForCanary(allRSs []*appsv1.ReplicaSe
 			// cannot scale down this ReplicaSet.
 			continue
 		}
-		scaleDownCount := *(targetRS.Spec.Replicas)
 		// Scale down.
-		newReplicasCount := int32(0)
-		if scaleDownCount > maxScaleDown {
-			newReplicasCount = maxScaleDown
-		}
+		scaleDownCount := int32(integer.IntMin(int(*(targetRS.Spec.Replicas)), int(maxScaleDown-totalScaledDown)))
+		newReplicasCount := *(targetRS.Spec.Replicas) - scaleDownCount
 		_, _, err := c.scaleReplicaSetAndRecordEvent(targetRS, newReplicasCount, rollout)
+
 		if err != nil {
 			return totalScaledDown, err
 		}
@@ -364,6 +362,9 @@ func (c *Controller) syncRolloutStatusCanary(roCtx *canaryContext) error {
 }
 
 func (c *Controller) reconcileCanaryReplicaSets(roCtx *canaryContext) (bool, error) {
+	if roCtx.IsInplace() {
+		return c.reconcileInplaceReplicaSets(roCtx)
+	}
 	logCtx := roCtx.Log()
 	logCtx.Info("Reconciling StableRS")
 	scaledStableRS, err := c.reconcileStableRS(roCtx)
@@ -378,6 +379,7 @@ func (c *Controller) reconcileCanaryReplicaSets(roCtx *canaryContext) (bool, err
 	newRS := roCtx.NewRS()
 	olderRSs := roCtx.OlderRSs()
 	allRSs := roCtx.AllRSs()
+
 	scaledNewRS, err := c.reconcileNewReplicaSet(roCtx)
 	if err != nil {
 		return false, err

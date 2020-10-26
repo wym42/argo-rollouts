@@ -75,6 +75,9 @@ type Controller struct {
 	defaultIstioVersion        string
 	defaultTrafficSplitVersion string
 
+	podLister                     v1.PodLister
+	podSynced                     cache.InformerSynced
+	podInformer                   cache.SharedIndexInformer
 	replicaSetLister              appslisters.ReplicaSetLister
 	replicaSetSynced              cache.InformerSynced
 	rolloutsInformer              cache.SharedIndexInformer
@@ -124,6 +127,7 @@ type ControllerConfig struct {
 	AnalysisRunInformer             informers.AnalysisRunInformer
 	AnalysisTemplateInformer        informers.AnalysisTemplateInformer
 	ClusterAnalysisTemplateInformer informers.ClusterAnalysisTemplateInformer
+	PodInformer                     coreinformers.PodInformer
 	ReplicaSetInformer              appsinformers.ReplicaSetInformer
 	ServicesInformer                coreinformers.ServiceInformer
 	IngressInformer                 extensionsinformers.IngressInformer
@@ -164,6 +168,9 @@ func NewController(cfg ControllerConfig) *Controller {
 		defaultIstioVersion:           cfg.DefaultIstioVersion,
 		defaultTrafficSplitVersion:    cfg.DefaultTrafficSplitVersion,
 		replicaSetControl:             replicaSetControl,
+		podLister:                     cfg.PodInformer.Lister(),
+		podSynced:                     cfg.PodInformer.Informer().HasSynced,
+		podInformer:                   cfg.PodInformer.Informer(),
 		replicaSetLister:              cfg.ReplicaSetInformer.Lister(),
 		replicaSetSynced:              cfg.ReplicaSetInformer.Informer().HasSynced,
 		rolloutsInformer:              cfg.RolloutsInformer.Informer(),
@@ -186,6 +193,7 @@ func NewController(cfg ControllerConfig) *Controller {
 		metricsServer:                 cfg.MetricsServer,
 		podRestarter:                  podRestarter,
 	}
+
 	controller.enqueueRollout = func(obj interface{}) {
 		controllerutil.EnqueueRateLimited(obj, cfg.RolloutWorkQueue)
 	}

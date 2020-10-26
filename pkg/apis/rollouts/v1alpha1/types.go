@@ -64,6 +64,16 @@ type RolloutSpec struct {
 }
 
 const (
+	// Conditions types
+	UpdateInplaceCoolTime        = "UpdateInplaceCoolTime"
+	RolloutInplaceReadinessGates = "RolloutInplaceReadinessGates"
+	RolloutInplaceOriginRSHash   = "RolloutInplaceOriginRSHash"
+	RolloutInplaceNewRSHash      = "RolloutInplaceNewRSHash"
+	RolloutInplaceWaitSeconds    = "RolloutInplaceWaitSeconds"
+
+	RolloutInplaceAnnotationKey          = "argo-rollouts.argoproj.io/canary-inplace"
+	RolloutInplaceRSHistoryAnnotationKey = "rollouts-inplace-rs-hash-history"
+
 	// DefaultRolloutUniqueLabelKey is the default key of the selector that is added
 	// to existing ReplicaSets (and label key that is added to its pods) to prevent the existing ReplicaSets
 	// to select new pods (and old pods being select by new ReplicaSet).

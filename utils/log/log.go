@@ -10,6 +10,7 @@ import (
 )
 
 const (
+	PodInplace = "inplace"
 	// RolloutKey defines the key for the rollout field
 	RolloutKey = "rollout"
 	// ExperimentKey defines the key for the experiment field
