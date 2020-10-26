@@ -203,6 +203,16 @@ func newCanaryCtx(r *v1alpha1.Rollout, newRS *appsv1.ReplicaSet, otherRSs []*app
 	}
 }
 
+func (cCtx *canaryContext) IsInplace() bool {
+	if cCtx.rollout.Annotations == nil {
+		return false
+	}
+	if val, ok := cCtx.rollout.Annotations[v1alpha1.RolloutInplaceAnnotationKey]; ok && val == "true" {
+		return true
+	}
+	return false
+}
+
 func (cCtx *canaryContext) Rollout() *v1alpha1.Rollout {
 	return cCtx.rollout
 }

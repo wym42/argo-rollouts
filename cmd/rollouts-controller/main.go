@@ -125,6 +125,7 @@ func newCommand() *cobra.Command {
 				rolloutClient,
 				dynamicClient,
 				smiClient,
+				kubeInformerFactory.Core().V1().Pods(),
 				kubeInformerFactory.Apps().V1().ReplicaSets(),
 				kubeInformerFactory.Core().V1().Services(),
 				kubeInformerFactory.Extensions().V1beta1().Ingresses(),

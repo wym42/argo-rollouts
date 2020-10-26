@@ -12,6 +12,20 @@ import (
 // AtDesiredReplicaCountsForCanary indicates if the rollout is at the desired state for the current step
 func AtDesiredReplicaCountsForCanary(rollout *v1alpha1.Rollout, newRS, stableRS *appsv1.ReplicaSet, olderRSs []*appsv1.ReplicaSet) bool {
 	desiredNewRSReplicaCount, desiredStableRSReplicaCount := DesiredReplicaCountsForCanary(rollout, newRS, stableRS)
+	if IsInplace(rollout) {
+		// CalculateReplicaCountsForCanary 会出现情况，stable rs减少的和new rs 增加的不一致，inplace 做了处理，
+		if newRS == nil || desiredNewRSReplicaCount > *newRS.Spec.Replicas || desiredNewRSReplicaCount > newRS.Status.AvailableReplicas {
+			return false
+		}
+		if stableRS == nil || desiredStableRSReplicaCount < *stableRS.Spec.Replicas || desiredStableRSReplicaCount < stableRS.Status.AvailableReplicas {
+			return false
+		}
+		if GetAvailableReplicaCountForReplicaSets(olderRSs) != int32(0) {
+			return false
+		}
+		return true
+	}
+
 	if newRS == nil || desiredNewRSReplicaCount != *newRS.Spec.Replicas || desiredNewRSReplicaCount != newRS.Status.AvailableReplicas {
 		return false
 	}
@@ -23,6 +37,18 @@ func AtDesiredReplicaCountsForCanary(rollout *v1alpha1.Rollout, newRS, stableRS 
 	}
 	return true
 }
+func IsInplace(rollout *v1alpha1.Rollout) bool {
+	if rollout == nil {
+		return false
+	}
+	if rollout.Annotations == nil {
+		return false
+	}
+	if val, ok := rollout.Annotations[v1alpha1.RolloutInplaceAnnotationKey]; ok && val == "true" {
+		return true
+	}
+	return false
+}
 
 //DesiredReplicaCountsForCanary calculates the desired endstate replica count for the new and stable replicasets
 func DesiredReplicaCountsForCanary(rollout *v1alpha1.Rollout, newRS, stableRS *appsv1.ReplicaSet) (int32, int32) {
@@ -31,6 +57,7 @@ func DesiredReplicaCountsForCanary(rollout *v1alpha1.Rollout, newRS, stableRS *a
 
 	desiredStableRSReplicaCount := int32(math.Ceil(float64(rolloutSpecReplica) * (1 - (float64(setWeight) / 100))))
 	desiredNewRSReplicaCount := int32(math.Ceil(float64(rolloutSpecReplica) * (float64(setWeight) / 100)))
+
 	if !CheckStableRSExists(newRS, stableRS) {
 		// If there is no stableRS or it is the same as the newRS, then the rollout does not follow the canary steps.
 		// Instead the controller tries to get the newRS to 100% traffic.

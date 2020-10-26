@@ -29,6 +29,7 @@ import (
 	"github.com/argoproj/argo-rollouts/controller/metrics"
 	"github.com/argoproj/argo-rollouts/experiments"
 	"github.com/argoproj/argo-rollouts/ingress"
+	"github.com/argoproj/argo-rollouts/inplace"
 	clientset "github.com/argoproj/argo-rollouts/pkg/client/clientset/versioned"
 	rolloutscheme "github.com/argoproj/argo-rollouts/pkg/client/clientset/versioned/scheme"
 	informers "github.com/argoproj/argo-rollouts/pkg/client/informers/externalversions/rollouts/v1alpha1"
@@ -69,6 +70,7 @@ type Manager struct {
 	analysisController   *analysis.Controller
 	serviceController    *service.Controller
 	ingressController    *ingress.Controller
+	inplaceController    *inplace.Controller
 
 	rolloutSynced                 cache.InformerSynced
 	experimentSynced              cache.InformerSynced
@@ -81,12 +83,14 @@ type Manager struct {
 	jobSynced                     cache.InformerSynced
 	replicasSetSynced             cache.InformerSynced
 	istioVirtualServiceSynced     cache.InformerSynced
+	inplaceSynced                 cache.InformerSynced
 
 	rolloutWorkqueue     workqueue.RateLimitingInterface
 	serviceWorkqueue     workqueue.RateLimitingInterface
 	ingressWorkqueue     workqueue.RateLimitingInterface
 	experimentWorkqueue  workqueue.RateLimitingInterface
 	analysisRunWorkqueue workqueue.RateLimitingInterface
+	inplaceWorkqueue     workqueue.RateLimitingInterface
 
 	defaultIstioVersion        string
 	defaultTrafficSplitVersion string
@@ -103,6 +107,7 @@ func NewManager(
 	argoprojclientset clientset.Interface,
 	dynamicclientset dynamic.Interface,
 	smiclientset smiclientset.Interface,
+	podInformer coreinformers.PodInformer,
 	replicaSetInformer appsinformers.ReplicaSetInformer,
 	servicesInformer coreinformers.ServiceInformer,
 	ingressesInformer extensionsinformers.IngressInformer,
@@ -148,6 +153,7 @@ func NewManager(
 	analysisRunWorkqueue := workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), "AnalysisRuns")
 	serviceWorkqueue := workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), "Services")
 	ingressWorkqueue := workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), "Ingresses")
+	inplaceWorkqueue := workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), "PodInplace")
 
 	rolloutController := rollout.NewController(rollout.ControllerConfig{
 		Namespace:                       namespace,
@@ -160,6 +166,7 @@ func NewManager(
 		AnalysisTemplateInformer:        analysisTemplateInformer,
 		ClusterAnalysisTemplateInformer: clusterAnalysisTemplateInformer,
 		IstioVirtualServiceInformer:     istioVirtualServiceInformer,
+		PodInformer:                     podInformer,
 		ReplicaSetInformer:              replicaSetInformer,
 		ServicesInformer:                servicesInformer,
 		IngressInformer:                 ingressesInformer,
@@ -226,6 +233,17 @@ func NewManager(
 		NGINXClasses: nginxIngressClasses,
 	})
 
+	inplaceController := inplace.NewController(inplace.ControllerConfig{
+		KubeClientSet: kubeclientset,
+
+		ReplicaSetInformer: replicaSetInformer,
+		PodInformer:        podInformer,
+
+		ResyncPeriod:  resyncPeriod,
+		PodWorkQueue:  inplaceWorkqueue,
+		MetricsServer: metricsServer,
+		Recorder:      recorder,
+	})
 	cm := &Manager{
 		metricsServer:                 metricsServer,
 		rolloutSynced:                 rolloutsInformer.Informer().HasSynced,
@@ -233,6 +251,7 @@ func NewManager(
 		ingressSynced:                 ingressesInformer.Informer().HasSynced,
 		secretSynced:                  secretInformer.Informer().HasSynced,
 		jobSynced:                     jobInformer.Informer().HasSynced,
+		inplaceSynced:                 podInformer.Informer().HasSynced,
 		experimentSynced:              experimentsInformer.Informer().HasSynced,
 		analysisRunSynced:             analysisRunInformer.Informer().HasSynced,
 		analysisTemplateSynced:        analysisTemplateInformer.Informer().HasSynced,
@@ -244,9 +263,11 @@ func NewManager(
 		analysisRunWorkqueue:          analysisRunWorkqueue,
 		serviceWorkqueue:              serviceWorkqueue,
 		ingressWorkqueue:              ingressWorkqueue,
+		inplaceWorkqueue:              inplaceWorkqueue,
 		rolloutController:             rolloutController,
 		serviceController:             serviceController,
 		ingressController:             ingressController,
+		inplaceController:             inplaceController,
 		experimentController:          experimentController,
 		analysisController:            analysisController,
 		defaultIstioVersion:           defaultIstioVersion,
@@ -270,6 +291,7 @@ func (c *Manager) Run(rolloutThreadiness, serviceThreadiness, ingressThreadiness
 	defer c.rolloutWorkqueue.ShutDown()
 	defer c.experimentWorkqueue.ShutDown()
 	defer c.analysisRunWorkqueue.ShutDown()
+	defer c.inplaceWorkqueue.ShutDown()
 	// Wait for the caches to be synced before starting workers
 	log.Info("Waiting for controller's informer caches to sync")
 	if ok := cache.WaitForCacheSync(stopCh, c.serviceSynced, c.ingressSynced, c.secretSynced, c.jobSynced, c.rolloutSynced, c.experimentSynced, c.analysisRunSynced, c.analysisTemplateSynced, c.clusterAnalysisTemplateSynced, c.replicasSetSynced); !ok {
@@ -290,6 +312,8 @@ func (c *Manager) Run(rolloutThreadiness, serviceThreadiness, ingressThreadiness
 	go wait.Until(func() { c.ingressController.Run(ingressThreadiness, stopCh) }, time.Second, stopCh)
 	go wait.Until(func() { c.experimentController.Run(experimentThreadiness, stopCh) }, time.Second, stopCh)
 	go wait.Until(func() { c.analysisController.Run(analysisThreadiness, stopCh) }, time.Second, stopCh)
+	go wait.Until(func() { c.inplaceController.Run(rolloutThreadiness, stopCh) }, time.Second, stopCh)
+
 	log.Info("Started controller")
 
 	go func() {
